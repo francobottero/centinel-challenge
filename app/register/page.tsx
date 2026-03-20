@@ -19,21 +19,8 @@ export default async function RegisterPage() {
             Centinel
           </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">
-            Create your account.
+            Create your account
           </h1>
-          <p className="mt-4 max-w-md text-base leading-7 text-[var(--muted)]">
-            New users are stored in the database with a hashed password and can
-            sign in immediately afterward.
-          </p>
-          <div className="mt-10 rounded-[1.5rem] border border-[var(--border)] bg-[var(--background)]/70 p-6">
-            <p className="text-sm font-medium text-[var(--foreground)]">
-              Persistence
-            </p>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              Prisma writes the user record to SQLite by default, so your auth
-              flow is ready for local development from the start.
-            </p>
-          </div>
         </div>
 
         <div className="px-8 py-10 md:px-12 md:py-14">

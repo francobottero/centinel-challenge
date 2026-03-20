@@ -19,21 +19,8 @@ export default async function LoginPage() {
             Centinel
           </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">
-            Welcome back.
+            Welcome back
           </h1>
-          <p className="mt-4 max-w-md text-base leading-7 text-[var(--muted)]">
-            Sign in with the email and password stored in your database-backed
-            account.
-          </p>
-          <div className="mt-10 rounded-[1.5rem] border border-[var(--border)] bg-[var(--background)]/70 p-6">
-            <p className="text-sm font-medium text-[var(--foreground)]">
-              App flow
-            </p>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              Register a user, store them in Prisma, then protect the app with a
-              session-aware home page.
-            </p>
-          </div>
         </div>
 
         <div className="px-8 py-10 md:px-12 md:py-14">

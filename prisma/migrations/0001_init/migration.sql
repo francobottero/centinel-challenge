@@ -43,6 +43,28 @@ CREATE TABLE "VerificationToken" (
     "expires" TIMESTAMP(3) NOT NULL
 );
 
+-- CreateTable
+CREATE TABLE "ExpenseReport" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "invoiceNumber" TEXT,
+    "description" TEXT,
+    "amount" DECIMAL(12,2),
+    "category" TEXT,
+    "expenseDate" TIMESTAMP(3),
+    "vendorName" TEXT,
+    "additionalNotes" TEXT,
+    "sourceFileName" TEXT NOT NULL,
+    "storedFileName" TEXT,
+    "storedFilePath" TEXT,
+    "fileMimeType" TEXT,
+    "fileSizeBytes" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ExpenseReport_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -57,3 +79,12 @@ CREATE UNIQUE INDEX "VerificationToken_token_key" ON "VerificationToken"("token"
 
 -- CreateIndex
 CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "VerificationToken"("identifier", "token");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ExpenseReport_userId_invoiceNumber_key" ON "ExpenseReport"("userId", "invoiceNumber");
+
+-- CreateIndex
+CREATE INDEX "ExpenseReport_userId_createdAt_idx" ON "ExpenseReport"("userId", "createdAt" DESC);
+
+-- AddForeignKey
+ALTER TABLE "ExpenseReport" ADD CONSTRAINT "ExpenseReport_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

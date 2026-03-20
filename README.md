@@ -3,6 +3,7 @@ This project now includes email/password authentication with:
 - `next-auth` for session handling
 - `Prisma` for database access
 - `PostgreSQL` as the default local database
+- `Gemini API` for invoice and receipt extraction
 - server-side registration via Next.js Server Functions
 
 ## Getting Started
@@ -44,11 +45,25 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/centinel?schema=publ
 
 If your local Postgres user/password/port differ, update `DATABASE_URL` in `.env` to match your machine, then rerun `npm run db:init`.
 
+You also need a Gemini API key in `.env`:
+
+```env
+GEMINI_API_KEY="your-gemini-api-key"
+GEMINI_RECEIPT_MODEL="gemini-2.5-flash"
+```
+
 ## Auth Notes
 
 - Users are stored in the database with hashed passwords.
 - The app uses a credentials provider for login.
 - The home page is protected and redirects unauthenticated users to `/login`.
+
+## Expense Extraction
+
+- Upload PDF receipts from the authenticated home page.
+- The server sends the uploaded PDF to Gemini as inline PDF data.
+- The extracted report is saved in Postgres with invoice number, description, amount, category, expense date, vendor name, and additional notes.
+- The original uploaded PDF is stored locally on the server and can be reopened from the saved report list.
 
 ## Deploy on Vercel
 
