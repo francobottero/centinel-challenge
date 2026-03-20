@@ -6,6 +6,7 @@ import {
   updateExpenseReport,
   type UpdateExpenseReportActionState,
 } from "@/app/actions/expense-reports";
+import { Input, Textarea } from "@/app/components/input";
 
 type ExpenseReportDetailFormProps = {
   report: {
@@ -41,12 +42,11 @@ export function ExpenseReportDetailForm({
           <label htmlFor="invoiceNumber" className="text-sm font-medium">
             Invoice number
           </label>
-          <input
+          <Input
             id="invoiceNumber"
             value={report.invoiceNumber ?? "Not found"}
             readOnly
             disabled
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm text-[var(--muted)]"
           />
           <p className="text-xs text-[var(--muted)]">
             Invoice number is locked after extraction.
@@ -57,11 +57,10 @@ export function ExpenseReportDetailForm({
           <label htmlFor="vendorName" className="text-sm font-medium">
             Vendor name
           </label>
-          <input
+          <Input
             id="vendorName"
             name="vendorName"
             defaultValue={report.vendorName ?? ""}
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
 
@@ -69,11 +68,10 @@ export function ExpenseReportDetailForm({
           <label htmlFor="description" className="text-sm font-medium">
             Description
           </label>
-          <input
+          <Input
             id="description"
             name="description"
             defaultValue={report.description ?? ""}
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
 
@@ -81,14 +79,13 @@ export function ExpenseReportDetailForm({
           <label htmlFor="amount" className="text-sm font-medium">
             Amount
           </label>
-          <input
+          <Input
             id="amount"
             name="amount"
             type="text"
             inputMode="decimal"
             defaultValue={report.amount ?? ""}
             placeholder="123.45"
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
 
@@ -96,11 +93,10 @@ export function ExpenseReportDetailForm({
           <label htmlFor="category" className="text-sm font-medium">
             Category
           </label>
-          <input
+          <Input
             id="category"
             name="category"
             defaultValue={report.category ?? ""}
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
 
@@ -108,12 +104,11 @@ export function ExpenseReportDetailForm({
           <label htmlFor="expenseDate" className="text-sm font-medium">
             Expense date
           </label>
-          <input
+          <Input
             id="expenseDate"
             name="expenseDate"
             type="date"
             defaultValue={report.expenseDate ?? ""}
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
 
@@ -121,12 +116,11 @@ export function ExpenseReportDetailForm({
           <label htmlFor="sourceFileName" className="text-sm font-medium">
             Source file
           </label>
-          <input
+          <Input
             id="sourceFileName"
             value={report.sourceFileName}
             readOnly
             disabled
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm text-[var(--muted)]"
           />
         </div>
 
@@ -134,12 +128,11 @@ export function ExpenseReportDetailForm({
           <label htmlFor="additionalNotes" className="text-sm font-medium">
             Additional notes
           </label>
-          <textarea
+          <Textarea
             id="additionalNotes"
             name="additionalNotes"
             defaultValue={report.additionalNotes ?? ""}
             rows={5}
-            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm"
           />
         </div>
       </div>

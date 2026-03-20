@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
 
+import { Input } from "@/app/components/input";
+
 export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -44,13 +46,13 @@ export function LoginForm() {
         <label htmlFor="email" className="text-sm font-medium">
           Email
         </label>
-        <input
+        <Input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 
@@ -58,14 +60,14 @@ export function LoginForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
-        <input
+        <Input
           id="password"
           name="password"
           type="password"
           autoComplete="current-password"
           required
           minLength={8}
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 

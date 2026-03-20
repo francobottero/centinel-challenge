@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+import { AuthNavbar } from "@/app/components/auth-navbar";
 import { ExpenseUploadForm } from "@/app/components/expense-upload-form";
-import { LogoutButton } from "@/app/components/logout-button";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ExpenseReport } from "@prisma/client";
@@ -24,61 +24,24 @@ export default async function Home() {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-16">
-      <section className="w-full max-w-6xl rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[0_20px_80px_rgba(15,23,42,0.12)] backdrop-blur md:p-12">
-        <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
-          <div className="max-w-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-              Protected Area
-            </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight">
-              Upload receipts and extract expense data.
-            </h1>
-            <p className="mt-4 max-w-xl text-base leading-7 text-[var(--muted)]">
-              This page is protected for authenticated users and now turns
-              invoice documents into saved expense reports with an LLM-powered
-              extraction step.
-            </p>
-          </div>
-
-          <LogoutButton />
-        </div>
-
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
-          <article className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
-            <p className="text-sm font-medium text-[var(--muted)]">Signed in as</p>
-            <p className="mt-3 text-2xl font-semibold">
-              {session.user.name ?? "Unnamed user"}
-            </p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              {session.user.email}
-            </p>
-          </article>
-
-          <article className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
-            <p className="text-sm font-medium text-[var(--muted)]">Stack</p>
-            <p className="mt-3 text-2xl font-semibold">Next.js + Prisma + Gemini</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              Upload receipts, parse them into a structured expense report, and
-              persist each extracted entry in Postgres.
-            </p>
-          </article>
-        </div>
-
-        <div className="mt-10">
+    <>
+      <AuthNavbar
+        name={session.user.name}
+        email={session.user.email}
+      />
+      <main className="min-h-screen px-6 py-8 md:py-10">
+        <section className="mx-auto w-full max-w-6xl rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[0_20px_80px_rgba(15,23,42,0.12)] backdrop-blur md:p-12">
           <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
-            <div className="max-w-lg">
-              <p className="text-sm font-medium text-[var(--muted)]">
-                New expense report
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-                Upload an invoice document
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                The model will extract invoice number, description, amount,
-                category, expense date, vendor name, and any useful notes.
-              </p>
-            </div>
+            <p className="text-sm font-medium text-[var(--muted)]">
+              New expense report
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+              Upload an invoice document
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+              The model will extract invoice number, description, amount,
+              category, expense date, vendor name, and any useful notes.
+            </p>
 
             <div className="mt-6">
               <ExpenseUploadForm />
@@ -191,8 +154,8 @@ export default async function Home() {
               </div>
             )}
           </section>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </>
   );
 }

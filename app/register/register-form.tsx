@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 
 import { registerUser, type RegisterState } from "@/app/actions/auth";
+import { Input } from "@/app/components/input";
 
 const initialState: RegisterState = {};
 
@@ -27,14 +28,14 @@ export function RegisterForm() {
         <label htmlFor="name" className="text-sm font-medium">
           Full name
         </label>
-        <input
+        <Input
           id="name"
           name="name"
           type="text"
           autoComplete="name"
           required
           minLength={2}
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 
@@ -42,13 +43,13 @@ export function RegisterForm() {
         <label htmlFor="email" className="text-sm font-medium">
           Email
         </label>
-        <input
+        <Input
           id="email"
           name="email"
           type="email"
           autoComplete="email"
           required
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 
@@ -56,14 +57,14 @@ export function RegisterForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Password
         </label>
-        <input
+        <Input
           id="password"
           name="password"
           type="password"
           autoComplete="new-password"
           required
           minLength={8}
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 
@@ -71,14 +72,14 @@ export function RegisterForm() {
         <label htmlFor="confirmPassword" className="text-sm font-medium">
           Confirm password
         </label>
-        <input
+        <Input
           id="confirmPassword"
           name="confirmPassword"
           type="password"
           autoComplete="new-password"
           required
           minLength={8}
-          className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 outline-none transition focus:border-[var(--accent)]"
+          className="bg-[var(--surface-strong)]"
         />
       </div>
 
