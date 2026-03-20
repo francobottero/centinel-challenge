@@ -13,6 +13,23 @@ export type ExpenseReportActionState = {
   success?: string;
 };
 
+export type UpdateExpenseReportActionState = {
+  error?: string;
+  success?: string;
+};
+
+const amountPattern = /^\d+(\.\d{1,2})?$/;
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeOptionalTextEntry(entry: FormDataEntryValue | null) {
+  if (typeof entry !== "string") {
+    return null;
+  }
+
+  const value = entry.trim();
+  return value.length > 0 ? value : null;
+}
+
 export async function createExpenseReport(
   _prevState: ExpenseReportActionState,
   formData: FormData,
@@ -133,5 +150,95 @@ export async function createExpenseReport(
 
   return {
     success: `Processed and saved ${files.length} receipt${files.length === 1 ? "" : "s"}.`,
+  };
+}
+
+export async function updateExpenseReport(
+  _prevState: UpdateExpenseReportActionState,
+  formData: FormData,
+): Promise<UpdateExpenseReportActionState> {
+  const session = await getSession();
+
+  if (!session?.user?.id) {
+    return {
+      error: "You need to be signed in to update an expense report.",
+    };
+  }
+
+  const reportId = formData.get("reportId");
+
+  if (typeof reportId !== "string" || reportId.trim().length === 0) {
+    return {
+      error: "Expense report ID is missing.",
+    };
+  }
+
+  const existingReport = await prisma.expenseReport.findFirst({
+    where: {
+      id: reportId,
+      userId: session.user.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existingReport) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  const description = normalizeOptionalTextEntry(formData.get("description"));
+  const amount = normalizeOptionalTextEntry(formData.get("amount"));
+  const category = normalizeOptionalTextEntry(formData.get("category"));
+  const expenseDate = normalizeOptionalTextEntry(formData.get("expenseDate"));
+  const vendorName = normalizeOptionalTextEntry(formData.get("vendorName"));
+  const additionalNotes = normalizeOptionalTextEntry(
+    formData.get("additionalNotes"),
+  );
+
+  if (amount && !amountPattern.test(amount)) {
+    return {
+      error: "Amount must be a valid decimal number with up to 2 decimal places.",
+    };
+  }
+
+  if (expenseDate && !datePattern.test(expenseDate)) {
+    return {
+      error: "Expense date must use the YYYY-MM-DD format.",
+    };
+  }
+
+  try {
+    await prisma.expenseReport.update({
+      where: {
+        id: existingReport.id,
+      },
+      data: {
+        description,
+        amount: amount ? new Prisma.Decimal(amount) : null,
+        category,
+        expenseDate: expenseDate
+          ? new Date(`${expenseDate}T00:00:00.000Z`)
+          : null,
+        vendorName,
+        additionalNotes,
+      },
+    });
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "We could not update that expense report.",
+    };
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/expense-reports/${existingReport.id}`);
+
+  return {
+    success: "Expense report updated.",
   };
 }

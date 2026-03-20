@@ -65,7 +65,7 @@ export default async function Home() {
           </article>
         </div>
 
-        <div className="mt-10 grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
+        <div className="mt-10">
           <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
             <div className="max-w-lg">
               <p className="text-sm font-medium text-[var(--muted)]">
@@ -85,7 +85,7 @@ export default async function Home() {
             </div>
           </section>
 
-          <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
+          <section className="mt-10 rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-[var(--muted)]">
@@ -115,7 +115,12 @@ export default async function Home() {
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div>
                         <p className="text-sm font-medium text-[var(--muted)]">
-                          {report.vendorName ?? "Unknown vendor"}
+                          <Link
+                            href={`/expense-reports/${report.id}`}
+                            className="transition hover:text-[var(--accent)]"
+                          >
+                            {report.vendorName ?? "Unknown vendor"}
+                          </Link>
                         </p>
                         <p className="mt-1 text-sm font-semibold">
                           {report.description ?? "Untitled expense"}
