@@ -11,6 +11,8 @@ import { Input, Textarea } from "@/app/components/input";
 type ExpenseReportDetailFormProps = {
   report: {
     id: string;
+    status: string;
+    processingError: string | null;
     invoiceNumber: string | null;
     description: string | null;
     amount: string | null;
@@ -32,10 +34,19 @@ export function ExpenseReportDetailForm({
     updateExpenseReport,
     initialState,
   );
+  const isEditable = report.status === "COMPLETED";
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="reportId" value={report.id} />
+
+      {!isEditable ? (
+        <p className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {report.status === "FAILED"
+            ? report.processingError ?? "This receipt failed to process."
+            : "This receipt is still processing. Fields become editable once extraction finishes."}
+        </p>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -61,6 +72,7 @@ export function ExpenseReportDetailForm({
             id="vendorName"
             name="vendorName"
             defaultValue={report.vendorName ?? ""}
+            disabled={!isEditable}
           />
         </div>
 
@@ -72,6 +84,7 @@ export function ExpenseReportDetailForm({
             id="description"
             name="description"
             defaultValue={report.description ?? ""}
+            disabled={!isEditable}
           />
         </div>
 
@@ -86,6 +99,7 @@ export function ExpenseReportDetailForm({
             inputMode="decimal"
             defaultValue={report.amount ?? ""}
             placeholder="123.45"
+            disabled={!isEditable}
           />
         </div>
 
@@ -97,6 +111,7 @@ export function ExpenseReportDetailForm({
             id="category"
             name="category"
             defaultValue={report.category ?? ""}
+            disabled={!isEditable}
           />
         </div>
 
@@ -109,6 +124,7 @@ export function ExpenseReportDetailForm({
             name="expenseDate"
             type="date"
             defaultValue={report.expenseDate ?? ""}
+            disabled={!isEditable}
           />
         </div>
 
@@ -133,6 +149,7 @@ export function ExpenseReportDetailForm({
             name="additionalNotes"
             defaultValue={report.additionalNotes ?? ""}
             rows={5}
+            disabled={!isEditable}
           />
         </div>
       </div>
@@ -167,10 +184,10 @@ export function ExpenseReportDetailForm({
 
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !isEditable}
           className="inline-flex items-center justify-center rounded-full bg-[var(--accent)] px-5 py-3 font-semibold text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {pending ? "Saving..." : "Save changes"}
+          {pending ? "Saving..." : isEditable ? "Save changes" : "Waiting for extraction"}
         </button>
       </div>
     </form>

@@ -1,19 +1,30 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+import { unlink } from "node:fs/promises";
+
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { getSession } from "@/lib/auth";
-import { extractExpenseReportsFromFiles } from "@/lib/expense-reports";
+import { enqueueExpenseReportProcessing } from "@/lib/expense-report-queue";
+import { validateReceiptFile } from "@/lib/expense-reports";
 import { prisma } from "@/lib/prisma";
 import { saveReceiptFile } from "@/lib/receipt-storage";
 
 export type ExpenseReportActionState = {
   error?: string;
   success?: string;
+  uploadSessionId?: string;
+  queuedCount?: number;
 };
 
 export type UpdateExpenseReportActionState = {
+  error?: string;
+  success?: string;
+};
+
+export type DeleteExpenseReportActionState = {
   error?: string;
   success?: string;
 };
@@ -51,59 +62,57 @@ export async function createExpenseReport(
     };
   }
 
+  const uploadSessionId = randomUUID();
+
   try {
-    const extractedReports = await extractExpenseReportsFromFiles(files);
     const failures: string[] = [];
-    let processedCount = 0;
+    let queuedCount = 0;
 
-    for (const [index, fileEntry] of files.entries()) {
-      const extracted = extractedReports[index];
-
+    for (const fileEntry of files) {
       try {
-        if (extracted.invoiceNumber) {
-          const existingReport = await prisma.expenseReport.findFirst({
-            where: {
-              userId: session.user.id,
-              invoiceNumber: extracted.invoiceNumber,
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          if (existingReport) {
-            failures.push(
-              `${fileEntry.name}: invoice ${extracted.invoiceNumber} was already processed.`,
-            );
-            continue;
-          }
-        }
+        validateReceiptFile(fileEntry);
 
         const storedFile = await saveReceiptFile(fileEntry);
-
-        await prisma.expenseReport.create({
+        const createdReport = await prisma.expenseReport.create({
           data: {
             userId: session.user.id,
-            invoiceNumber: extracted.invoiceNumber,
-            description: extracted.description,
-            amount: extracted.amount
-              ? new Prisma.Decimal(extracted.amount)
-              : null,
-            category: extracted.category,
-            expenseDate: extracted.expenseDate
-              ? new Date(`${extracted.expenseDate}T00:00:00.000Z`)
-              : null,
-            vendorName: extracted.vendorName,
-            additionalNotes: extracted.additionalNotes,
-            sourceFileName: fileEntry.name || extracted.sourceFileName,
+            uploadSessionId,
+            sourceFileName: fileEntry.name || "uploaded-document",
             storedFileName: storedFile.storedFileName,
             storedFilePath: storedFile.storedFilePath,
             fileMimeType: storedFile.fileMimeType,
             fileSizeBytes: storedFile.fileSizeBytes,
           },
+          select: {
+            id: true,
+          },
         });
 
-        processedCount += 1;
+        try {
+          await enqueueExpenseReportProcessing(createdReport.id);
+          queuedCount += 1;
+        } catch (error) {
+          await prisma.expenseReport.update({
+            where: {
+              id: createdReport.id,
+            },
+            data: {
+              status: "FAILED",
+              processingError:
+                error instanceof Error
+                  ? error.message
+                  : "We could not queue that receipt for processing.",
+            },
+          });
+
+          failures.push(
+            `${fileEntry.name}: ${
+              error instanceof Error
+                ? error.message
+                : "we could not queue that receipt for processing."
+            }`,
+          );
+        }
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -127,16 +136,20 @@ export async function createExpenseReport(
 
     revalidatePath("/");
 
-    if (processedCount === 0) {
+    if (queuedCount === 0) {
       return {
         error: failures.join(" "),
+        uploadSessionId,
+        queuedCount,
       };
     }
 
     if (failures.length > 0) {
       return {
-        success: `Processed ${processedCount} of ${files.length} uploaded receipts.`,
+        success: `Queued ${queuedCount} of ${files.length} receipt${files.length === 1 ? "" : "s"} for background processing.`,
         error: failures.join(" "),
+        uploadSessionId,
+        queuedCount,
       };
     }
   } catch (error) {
@@ -144,12 +157,14 @@ export async function createExpenseReport(
       error:
         error instanceof Error
           ? error.message
-          : "We could not extract data from that document.",
+          : "We could not queue those documents for processing.",
     };
   }
 
   return {
-    success: `Processed and saved ${files.length} receipt${files.length === 1 ? "" : "s"}.`,
+    success: `Queued ${files.length} receipt${files.length === 1 ? "" : "s"} for background processing.`,
+    uploadSessionId,
+    queuedCount: files.length,
   };
 }
 
@@ -180,12 +195,22 @@ export async function updateExpenseReport(
     },
     select: {
       id: true,
+      status: true,
     },
   });
 
   if (!existingReport) {
     return {
       error: "Expense report not found.",
+    };
+  }
+
+  if (existingReport.status !== "COMPLETED") {
+    return {
+      error:
+        existingReport.status === "FAILED"
+          ? "Failed reports cannot be edited until they are reprocessed."
+          : "This expense report is still processing and is not editable yet.",
     };
   }
 
@@ -240,5 +265,66 @@ export async function updateExpenseReport(
 
   return {
     success: "Expense report updated.",
+  };
+}
+
+export async function deleteFailedExpenseReport(
+  reportId: string,
+): Promise<DeleteExpenseReportActionState> {
+  const session = await getSession();
+
+  if (!session?.user?.id) {
+    return {
+      error: "You need to be signed in to delete an expense report.",
+    };
+  }
+
+  const existingReport = await prisma.expenseReport.findFirst({
+    where: {
+      id: reportId,
+      userId: session.user.id,
+    },
+    select: {
+      id: true,
+      status: true,
+      storedFilePath: true,
+    },
+  });
+
+  if (!existingReport) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  if (existingReport.status !== "FAILED") {
+    return {
+      error: "Only failed expense reports can be deleted.",
+    };
+  }
+
+  try {
+    await prisma.expenseReport.delete({
+      where: {
+        id: existingReport.id,
+      },
+    });
+
+    if (existingReport.storedFilePath) {
+      await unlink(existingReport.storedFilePath).catch(() => undefined);
+    }
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "We could not delete that expense report.",
+    };
+  }
+
+  revalidatePath("/");
+
+  return {
+    success: "Failed expense report deleted.",
   };
 }

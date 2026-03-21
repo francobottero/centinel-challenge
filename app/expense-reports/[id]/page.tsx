@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { AuthNavbar } from "@/app/components/auth-navbar";
 import { ExpenseReportDetailForm } from "@/app/components/expense-report-detail-form";
+import { ExpenseReportStatusBadge } from "@/app/components/expense-report-status-badge";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -28,6 +29,8 @@ export default async function ExpenseReportDetailPage(props: PageProps) {
     },
     select: {
       id: true,
+      status: true,
+      processingError: true,
       invoiceNumber: true,
       description: true,
       amount: true,
@@ -56,14 +59,17 @@ export default async function ExpenseReportDetailPage(props: PageProps) {
         <section className="mx-auto w-full max-w-4xl rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[0_20px_80px_rgba(15,23,42,0.12)] backdrop-blur md:p-12">
 
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
-                Expense Detail
-              </p>
-              <h1 className="mt-4 text-4xl font-semibold tracking-tight">
-                {report.vendorName ?? "Unknown vendor"}
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-[var(--accent)]">
+              Expense Detail
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <h1 className="text-4xl font-semibold tracking-tight">
+                {report.vendorName ?? report.sourceFileName}
               </h1>
+              <ExpenseReportStatusBadge status={report.status} />
             </div>
+          </div>
 
             <Link
               href="/"

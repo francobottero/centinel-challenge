@@ -5,9 +5,10 @@ import {
   type BatchExtractedExpenseReport,
   type ExtractedExpenseReport,
 } from "@/lib/expense-report-schema";
+import { acceptedReceiptMimeTypes } from "@/lib/receipt-file-types";
 import { gemini } from "@/lib/gemini";
 
-const allowedTypes = new Set(["application/pdf"]);
+const allowedTypes = new Set<string>(acceptedReceiptMimeTypes);
 
 const amountSchema = z.string().regex(/^\d+(\.\d{1,2})?$/);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -22,7 +23,7 @@ export function validateReceiptFile(file: File) {
   }
 
   if (file.type && !allowedTypes.has(file.type)) {
-    throw new Error("Supported file type is PDF.");
+    throw new Error("Supported file types are PDF, JPG, PNG, and WEBP.");
   }
 }
 
@@ -55,8 +56,8 @@ export async function extractExpenseReportsFromFiles(
   > = [
     {
       text:
-        "You will receive multiple uploaded invoice or receipt PDFs. " +
-        "Treat each PDF as a separate document and extract data for each one independently. " +
+        "You can receive multiple uploaded invoice or receipt files. " +
+        "Each file can be a PDF or an image. Treat each file as a separate document and extract data for each one independently. " +
         "Return JSON only as an array with exactly one object per uploaded document, in the same order as the documents are provided. " +
         "Each object must have these keys: documentIndex, sourceFileName, invoiceNumber, description, amount, category, expenseDate, vendorName, additionalNotes. " +
         "documentIndex must be the zero-based index of the document in input order. " +

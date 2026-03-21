@@ -20,10 +20,7 @@ export function AuthNavbar({ name, email }: AuthNavbarProps) {
           </Link>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-              Signed In
-            </p>
-            <p className="mt-1 text-lg font-semibold">
+            <p className="text-lg font-semibold">
               {name ?? "Unnamed user"}
             </p>
             <p className="text-sm text-[var(--muted)]">

@@ -6,6 +6,13 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ExpenseReportStatus {
+  UPLOADED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -57,6 +64,11 @@ model VerificationToken {
 model ExpenseReport {
   id              String    @id @default(cuid())
   userId          String
+  uploadSessionId String?
+  status          ExpenseReportStatus @default(UPLOADED)
+  processingError String?
+  processingStartedAt DateTime?
+  processedAt     DateTime?
   invoiceNumber   String?
   description     String?
   amount          Decimal?  @db.Decimal(12, 2)
@@ -75,4 +87,6 @@ model ExpenseReport {
 
   @@unique([userId, invoiceNumber])
   @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, uploadSessionId, createdAt(sort: Desc)])
+  @@index([userId, status, createdAt(sort: Desc)])
 }

@@ -6,11 +6,16 @@ import {
   createExpenseReport,
   type ExpenseReportActionState,
 } from "@/app/actions/expense-reports";
+import { acceptedReceiptFileInputValue } from "@/lib/receipt-file-types";
 
 const initialState: ExpenseReportActionState = {};
 const feedbackTimeoutMs = 5000;
 
-export function ExpenseUploadForm() {
+type ExpenseUploadFormProps = {
+  onUploadQueued?: (uploadSessionId: string) => void;
+};
+
+export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
   const [state, formAction, pending] = useActionState(
     createExpenseReport,
     initialState,
@@ -28,6 +33,12 @@ export function ExpenseUploadForm() {
       formRef.current?.reset();
     }
   }, [state.success]);
+
+  useEffect(() => {
+    if (state.uploadSessionId) {
+      onUploadQueued?.(state.uploadSessionId);
+    }
+  }, [onUploadQueued, state.uploadSessionId]);
 
   useEffect(() => {
     if (!state.error && !state.success) {
@@ -78,13 +89,14 @@ export function ExpenseUploadForm() {
           id="receipt"
           name="receipt"
           type="file"
-          accept=".pdf,application/pdf"
+          accept={acceptedReceiptFileInputValue}
           multiple
           required
           className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-[var(--accent)] file:px-4 file:py-2 file:font-medium file:text-white"
         />
         <p className="text-sm text-[var(--muted)]">
-          Supported: PDF. Max size: 10 MB each. You can select multiple files.
+          Supported: PDF, JPG, PNG, WEBP. Max size: 10 MB each. You can
+          select multiple files.
         </p>
       </div>
 
@@ -117,7 +129,7 @@ export function ExpenseUploadForm() {
       ) : null}
 
       <div aria-live="polite" className="sr-only">
-        {pending ? "Uploading receipts" : ""}
+        {pending ? "Queueing receipts" : ""}
       </div>
 
       <button
@@ -125,7 +137,7 @@ export function ExpenseUploadForm() {
         disabled={pending}
         className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-3 font-semibold text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
       >
-        {pending ? "Extracting..." : "Upload and extract all"}
+        {pending ? "Queueing..." : "Upload and process in background"}
       </button>
     </form>
   );
