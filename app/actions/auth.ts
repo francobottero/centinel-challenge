@@ -47,6 +47,7 @@ export async function registerUser(
       data: {
         name: parsed.data.name,
         email: parsed.data.email.toLowerCase(),
+        confirmed: false,
         password: await hash(parsed.data.password, 12),
       },
     });

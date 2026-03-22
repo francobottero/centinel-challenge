@@ -6,6 +6,7 @@ import { FormEvent, useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
 
 import { Input } from "@/app/components/input";
+import { unconfirmedAccountError } from "@/lib/auth-errors";
 
 export function LoginForm() {
   const router = useRouter();
@@ -30,7 +31,11 @@ export function LoginForm() {
         });
 
         if (result?.error) {
-          setError("Incorrect email or password.");
+          setError(
+            result.error === unconfirmedAccountError
+              ? "Your account is pending manual approval."
+              : "Incorrect email or password.",
+          );
           return;
         }
 

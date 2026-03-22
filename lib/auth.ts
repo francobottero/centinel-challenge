@@ -5,6 +5,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { z } from "zod";
 
+import { unconfirmedAccountError } from "@/lib/auth-errors";
 import { prisma } from "@/lib/prisma";
 
 const credentialsSchema = z.object({
@@ -48,6 +49,10 @@ export const authOptions: NextAuthOptions = {
 
         if (!user) {
           return null;
+        }
+
+        if (!user.confirmed) {
+          throw new Error(unconfirmedAccountError);
         }
 
         const isPasswordValid = await compare(
