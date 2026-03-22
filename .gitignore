@@ -19,6 +19,8 @@
 
 # production
 /build
+/firebase/functions/lib
+/firebase/functions/node_modules
 
 # misc
 .DS_Store

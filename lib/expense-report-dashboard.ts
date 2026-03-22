@@ -1,28 +1,25 @@
-import type { ExpenseReport } from "@prisma/client";
-
 import {
   isPendingExpenseReportStatus,
   type ExpenseReportStatusValue,
 } from "@/lib/expense-report-status";
 
-type ExpenseReportDashboardRecord = Pick<
-  ExpenseReport,
-  | "id"
-  | "uploadSessionId"
-  | "status"
-  | "processingError"
-  | "invoiceNumber"
-  | "description"
-  | "amount"
-  | "category"
-  | "expenseDate"
-  | "vendorName"
-  | "additionalNotes"
-  | "sourceFileName"
-  | "storedFilePath"
-  | "createdAt"
-  | "updatedAt"
->;
+type ExpenseReportDashboardRecord = {
+  id: string;
+  uploadSessionId: string | null;
+  status: ExpenseReportStatusValue;
+  processingError: string | null;
+  invoiceNumber: string | null;
+  description: string | null;
+  amount: string | number | null;
+  category: string | null;
+  expenseDate: string | Date | null;
+  vendorName: string | null;
+  additionalNotes: string | null;
+  sourceFileName: string;
+  storedFilePath: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
 
 export type ExpenseReportListItem = {
   id: string;
@@ -56,6 +53,14 @@ export type UploadSessionSummary = {
 export function serializeExpenseReport(
   report: ExpenseReportDashboardRecord,
 ): ExpenseReportListItem {
+  const amount =
+    report.amount === null || report.amount === undefined
+      ? null
+      : typeof report.amount === "string"
+        ? report.amount
+        : report.amount.toString();
+  const expenseDate = normalizeDateOnly(report.expenseDate);
+
   return {
     id: report.id,
     uploadSessionId: report.uploadSessionId,
@@ -63,18 +68,36 @@ export function serializeExpenseReport(
     processingError: report.processingError,
     invoiceNumber: report.invoiceNumber,
     description: report.description,
-    amount: report.amount?.toString() ?? null,
+    amount,
     category: report.category,
-    expenseDate: report.expenseDate
-      ? report.expenseDate.toISOString().slice(0, 10)
-      : null,
+    expenseDate,
     vendorName: report.vendorName,
     additionalNotes: report.additionalNotes,
     sourceFileName: report.sourceFileName,
     storedFilePath: report.storedFilePath,
-    createdAt: report.createdAt.toISOString(),
-    updatedAt: report.updatedAt.toISOString(),
+    createdAt: normalizeTimestamp(report.createdAt),
+    updatedAt: normalizeTimestamp(report.updatedAt),
   };
+}
+
+function normalizeTimestamp(value: string | Date) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value.toISOString();
+}
+
+function normalizeDateOnly(value: string | Date | null) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value.toISOString().slice(0, 10);
 }
 
 export function summarizeUploadSession(

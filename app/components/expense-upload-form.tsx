@@ -1,27 +1,33 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytes } from "firebase/storage";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import {
-  createExpenseReport,
-  type ExpenseReportActionState,
-} from "@/app/actions/expense-reports";
+import { firebaseClientDb, firebaseClientStorage } from "@/lib/firebase-client";
+import { ensureFirebaseClientSession } from "@/lib/firebase-client-session";
+import { expenseReportsCollectionName } from "@/lib/firebase-expense-reports";
 import { acceptedReceiptFileInputValue } from "@/lib/receipt-file-types";
 
-const initialState: ExpenseReportActionState = {};
 const feedbackTimeoutMs = 5000;
+const acceptedReceiptMimeTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 type ExpenseUploadFormProps = {
   onUploadQueued?: (uploadSessionId: string) => void;
 };
 
 export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
-  const [state, formAction, pending] = useActionState(
-    createExpenseReport,
-    initialState,
-  );
   const formRef = useRef<HTMLFormElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [submissionId, setSubmissionId] = useState(0);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [dismissedErrorSubmissionId, setDismissedErrorSubmissionId] = useState<
     number | null
   >(null);
@@ -29,63 +35,142 @@ export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
     useState<number | null>(null);
 
   useEffect(() => {
-    if (state.success) {
-      formRef.current?.reset();
-    }
-  }, [state.success]);
-
-  useEffect(() => {
-    if (state.uploadSessionId) {
-      onUploadQueued?.(state.uploadSessionId);
-    }
-  }, [onUploadQueued, state.uploadSessionId]);
-
-  useEffect(() => {
-    if (!state.error && !state.success) {
+    if (!error && !success) {
       return;
     }
 
     const currentSubmissionId = submissionId;
     const timeoutId = window.setTimeout(() => {
-      if (state.error) {
+      if (error) {
         setDismissedErrorSubmissionId(currentSubmissionId);
       }
 
-      if (state.success) {
+      if (success) {
         setDismissedSuccessSubmissionId(currentSubmissionId);
       }
     }, feedbackTimeoutMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [state.error, state.success, submissionId]);
+  }, [error, success, submissionId]);
 
   const visibleError =
-    !pending &&
-    state.error &&
-    dismissedErrorSubmissionId !== submissionId
-      ? state.error
+    !pending && error && dismissedErrorSubmissionId !== submissionId
+      ? error
       : undefined;
   const visibleSuccess =
-    !pending &&
-    state.success &&
-    dismissedSuccessSubmissionId !== submissionId
-      ? state.success
+    !pending && success && dismissedSuccessSubmissionId !== submissionId
+      ? success
       : undefined;
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmissionId((currentValue) => currentValue + 1);
+    setError(null);
+    setSuccess(null);
+    setPending(true);
+
+    const files = Array.from(inputRef.current?.files ?? []);
+
+    if (files.length === 0) {
+      setError("Please choose at least one receipt or invoice file to upload.");
+      setPending(false);
+      return;
+    }
+
+    const uploadSessionId = crypto.randomUUID();
+    let queuedCount = 0;
+    const failures: string[] = [];
+
+    try {
+      const firebaseUser = await ensureFirebaseClientSession();
+
+      if (!firebaseUser) {
+        throw new Error("Could not initialize the Firebase upload session.");
+      }
+
+      for (const file of files) {
+        try {
+          validateReceiptFileForClient(file);
+
+          const sanitizedFileName = sanitizeFileName(file.name || "receipt");
+          const storagePath = `users/${firebaseUser.uid}/receipts/${uploadSessionId}/${crypto.randomUUID()}-${sanitizedFileName}`;
+          const storageReference = ref(firebaseClientStorage, storagePath);
+          const uploadResult = await uploadBytes(storageReference, file, {
+            contentType: file.type || "application/pdf",
+          });
+          await addDoc(collection(firebaseClientDb, expenseReportsCollectionName), {
+            userId: firebaseUser.uid,
+            uploadSessionId,
+            status: "UPLOADED",
+            processingError: null,
+            invoiceNumber: null,
+            description: null,
+            amount: null,
+            category: null,
+            expenseDate: null,
+            vendorName: null,
+            additionalNotes: null,
+            sourceFileName: file.name || "uploaded-document",
+            storagePath,
+            fileMimeType:
+              uploadResult.metadata.contentType ||
+              file.type ||
+              "application/pdf",
+            fileSizeBytes: file.size,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            processingStartedAt: null,
+            processedAt: null,
+          });
+
+          queuedCount += 1;
+        } catch (uploadError) {
+          failures.push(
+            `${file.name}: ${
+              uploadError instanceof Error
+                ? uploadError.message
+                : "we could not upload that file."
+            }`,
+          );
+        }
+      }
+
+      if (queuedCount === 0) {
+        setError(failures.join(" "));
+        setPending(false);
+        return;
+      }
+
+      onUploadQueued?.(uploadSessionId);
+      formRef.current?.reset();
+      setSuccess(
+        `Queued ${queuedCount} of ${files.length} receipt${
+          files.length === 1 ? "" : "s"
+        } for processing.`,
+      );
+
+      if (failures.length > 0) {
+        setError(failures.join(" "));
+      }
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "We could not queue those documents for processing.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <form
-      ref={formRef}
-      action={formAction}
-      className="space-y-5"
-      onSubmit={() => {
-        setSubmissionId((currentValue) => currentValue + 1);
-      }}
-    >
+    <form ref={formRef} onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
         <label htmlFor="receipt" className="text-sm font-medium">
           Upload invoices or receipts
         </label>
         <input
+          ref={inputRef}
           id="receipt"
           name="receipt"
           type="file"
@@ -129,7 +214,7 @@ export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
       ) : null}
 
       <div aria-live="polite" className="sr-only">
-        {pending ? "Queueing receipts" : ""}
+        {pending ? "Uploading receipts" : ""}
       </div>
 
       <button
@@ -137,8 +222,27 @@ export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
         disabled={pending}
         className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-3 font-semibold text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
       >
-        {pending ? "Queueing..." : "Upload and process in background"}
+        {pending ? "Uploading..." : "Upload and process in background"}
       </button>
     </form>
   );
+}
+
+function sanitizeFileName(fileName: string) {
+  const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, "-");
+  return normalized.length > 0 ? normalized : "receipt";
+}
+
+function validateReceiptFileForClient(file: File) {
+  if (file.size === 0) {
+    throw new Error("Please choose a receipt or invoice file to upload.");
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("Please upload a file smaller than 10 MB.");
+  }
+
+  if (file.type && !acceptedReceiptMimeTypes.has(file.type)) {
+    throw new Error("Supported file types are PDF, JPG, PNG, and WEBP.");
+  }
 }

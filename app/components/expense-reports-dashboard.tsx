@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 
 import { ExpenseReportStatusBadge } from "@/app/components/expense-report-status-badge";
 import { ExpenseUploadForm } from "@/app/components/expense-upload-form";
+import { useExpenseReportStream } from "@/app/hooks/use-expense-report-stream";
 import { formatExpenseAmount } from "@/lib/amount-formatting";
 import type {
   ExpenseReportListItem,
@@ -46,7 +40,6 @@ export function ExpenseReportsDashboard({
     string | null
   >(null);
   const [isDeletingReport, startDeleteTransition] = useTransition();
-  const socketRef = useRef<WebSocket | null>(null);
 
   const hasPendingReports = useMemo(
     () => reports.some((report) => isPendingExpenseReportStatus(report.status)),
@@ -58,77 +51,21 @@ export function ExpenseReportsDashboard({
       ? summary
       : null;
 
-  useEffect(() => {
-    if (!hasPendingReports && !currentUploadSessionId) {
-      setIsLiveUpdating(false);
-      return;
-    }
-
-    const searchParams = new URLSearchParams();
-    searchParams.set("userId", userId);
-    if (currentUploadSessionId) {
-      searchParams.set("uploadSessionId", currentUploadSessionId);
-    }
-
-    const configuredSocketUrl =
-      process.env.NEXT_PUBLIC_EXPENSE_REPORT_WS_URL?.trim();
-    const fallbackSocketUrl = `${
-      window.location.protocol === "https:" ? "wss" : "ws"
-    }://${window.location.hostname}${
-      window.location.hostname === "localhost" ? ":3001" : ""
-    }`;
-    const socketBaseUrl =
-      configuredSocketUrl && configuredSocketUrl.length > 0
-        ? configuredSocketUrl
-        : fallbackSocketUrl;
-    const socket = new WebSocket(
-      `${socketBaseUrl}/?${searchParams.toString()}`,
-    );
-    socketRef.current = socket;
-    setIsLiveUpdating(true);
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data) as {
-        reports: ExpenseReportListItem[];
-        summary: UploadSessionSummary | null;
-        activeUploadSessionId: string | null;
-        selectedUploadSessionId: string | null;
-      };
-      setReports(data.reports);
-      setSummary(data.summary);
+  useExpenseReportStream({
+    userId,
+    uploadSessionId: currentUploadSessionId,
+    enabled: hasPendingReports || Boolean(currentUploadSessionId),
+    onMessage: useCallback((payload) => {
+      setReports(payload.reports);
+      setSummary(payload.summary);
       setCurrentUploadSessionId(
-        data.selectedUploadSessionId ?? data.activeUploadSessionId,
+        payload.selectedUploadSessionId ?? payload.activeUploadSessionId,
       );
-
-      const hasPendingFromStream = data.reports.some((report) =>
-        isPendingExpenseReportStatus(report.status),
-      );
-
-      if (!hasPendingFromStream) {
-        socket.close();
-        if (socketRef.current === socket) {
-          socketRef.current = null;
-        }
-        setIsLiveUpdating(false);
-      }
-    };
-
-    socket.onerror = () => {
-      setIsLiveUpdating(false);
-      socket.close();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-    };
-
-    return () => {
-      socket.close();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-      setIsLiveUpdating(false);
-    };
-  }, [currentUploadSessionId, hasPendingReports, userId]);
+    }, []),
+    onLiveUpdatingChange: useCallback((value: boolean) => {
+      setIsLiveUpdating(value);
+    }, []),
+  });
 
   const handleDeleteFailedReport = useCallback(
     (reportId: string) => {

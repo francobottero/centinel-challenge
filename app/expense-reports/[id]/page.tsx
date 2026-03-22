@@ -5,7 +5,12 @@ import { AuthNavbar } from "@/app/components/auth-navbar";
 import { ExpenseReportDetailForm } from "@/app/components/expense-report-detail-form";
 import { ExpenseReportStatusBadge } from "@/app/components/expense-report-status-badge";
 import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin";
+import {
+  expenseReportsCollectionName,
+  serializeExpenseReportData,
+  type ExpenseReportFirestoreDocument,
+} from "@/lib/firebase-expense-reports";
 
 type PageProps = {
   params: Promise<{
@@ -22,32 +27,24 @@ export default async function ExpenseReportDetailPage(props: PageProps) {
 
   const { id } = await props.params;
 
-  const report = await prisma.expenseReport.findFirst({
-    where: {
-      id,
-      userId: session.user.id,
-    },
-    select: {
-      id: true,
-      status: true,
-      processingError: true,
-      invoiceNumber: true,
-      description: true,
-      amount: true,
-      category: true,
-      expenseDate: true,
-      vendorName: true,
-      additionalNotes: true,
-      sourceFileName: true,
-      storedFilePath: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const reportSnapshot = await getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .doc(id)
+    .get();
 
-  if (!report) {
+  if (!reportSnapshot.exists) {
     notFound();
   }
+
+  const rawReport = reportSnapshot.data() as ExpenseReportFirestoreDocument;
+
+  if (rawReport.userId !== session.user.id) {
+    notFound();
+  }
+
+  const report = serializeExpenseReportData(reportSnapshot.id, rawReport);
+  const updatedAtLabel = new Date(report.updatedAt).toLocaleString("en-US");
+  const createdAtLabel = new Date(report.createdAt).toLocaleString("en-US");
 
   return (
     <>
@@ -92,10 +89,10 @@ export default async function ExpenseReportDetailPage(props: PageProps) {
                 Last updated
               </p>
               <p className="mt-3 text-xl font-semibold">
-                {report.updatedAt.toLocaleString("en-US")}
+                {updatedAtLabel}
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
-                Created {report.createdAt.toLocaleString("en-US")}
+                Created {createdAtLabel}
               </p>
             </article>
           </div>
@@ -114,10 +111,8 @@ export default async function ExpenseReportDetailPage(props: PageProps) {
               <ExpenseReportDetailForm
                 report={{
                   ...report,
-                  amount: report.amount?.toString() ?? null,
-                  expenseDate: report.expenseDate
-                    ? report.expenseDate.toISOString().slice(0, 10)
-                    : null,
+                  amount: report.amount ?? null,
+                  expenseDate: report.expenseDate ?? null,
                 }}
               />
             </div>

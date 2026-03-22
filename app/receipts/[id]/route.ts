@@ -1,9 +1,11 @@
-import { readFile } from "node:fs/promises";
-
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminDb, getFirebaseAdminStorage } from "@/lib/firebase-admin";
+import {
+  expenseReportsCollectionName,
+  type ExpenseReportFirestoreDocument,
+} from "@/lib/firebase-expense-reports";
 
 type RouteContext = {
   params: Promise<{
@@ -19,25 +21,26 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const { id } = await context.params;
+  const reportSnapshot = await getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .doc(id)
+    .get();
 
-  const report = await prisma.expenseReport.findFirst({
-    where: {
-      id,
-      userId: session.user.id,
-    },
-    select: {
-      sourceFileName: true,
-      storedFilePath: true,
-      fileMimeType: true,
-    },
-  });
+  if (!reportSnapshot.exists) {
+    return new NextResponse("File not found", { status: 404 });
+  }
 
-  if (!report?.storedFilePath) {
+  const report = reportSnapshot.data() as ExpenseReportFirestoreDocument;
+
+  if (report.userId !== session.user.id || !report.storagePath) {
     return new NextResponse("File not found", { status: 404 });
   }
 
   try {
-    const fileBuffer = await readFile(report.storedFilePath);
+    const [fileBuffer] = await getFirebaseAdminStorage()
+      .bucket()
+      .file(report.storagePath)
+      .download();
 
     return new NextResponse(new Uint8Array(fileBuffer), {
       headers: {

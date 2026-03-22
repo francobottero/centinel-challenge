@@ -1,53 +1,22 @@
-import { prisma } from "@/lib/prisma";
+import { getFirebaseAdminDb } from "@/lib/firebase-admin";
 import {
-  getLatestRelevantUploadSessionId,
-  serializeExpenseReport,
-  summarizeUploadSession,
-} from "@/lib/expense-report-dashboard";
+  createExpenseReportSnapshot,
+  expenseReportsCollectionName,
+  serializeExpenseReportDoc,
+} from "@/lib/firebase-expense-reports";
 
 export async function getExpenseReportsDashboardData(
   userId: string,
   preferredUploadSessionId?: string | null,
 ) {
-  const reports = (
-    await prisma.expenseReport.findMany({
-      where: {
-        userId,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        id: true,
-        uploadSessionId: true,
-        status: true,
-        processingError: true,
-        invoiceNumber: true,
-        description: true,
-        amount: true,
-        category: true,
-        expenseDate: true,
-        vendorName: true,
-        additionalNotes: true,
-        sourceFileName: true,
-        storedFilePath: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
-  ).map(serializeExpenseReport);
+  const snapshot = await getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .where("userId", "==", userId)
+    .orderBy("createdAt", "desc")
+    .get();
 
-  const activeUploadSessionId = getLatestRelevantUploadSessionId(reports);
-  const selectedUploadSessionId =
-    preferredUploadSessionId &&
-    reports.some((report) => report.uploadSessionId === preferredUploadSessionId)
-      ? preferredUploadSessionId
-      : activeUploadSessionId;
-
-  return {
-    reports,
-    activeUploadSessionId,
-    selectedUploadSessionId,
-    summary: summarizeUploadSession(reports, selectedUploadSessionId),
-  };
+  return createExpenseReportSnapshot(
+    snapshot.docs.map(serializeExpenseReportDoc),
+    preferredUploadSessionId,
+  );
 }

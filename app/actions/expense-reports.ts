@@ -1,16 +1,13 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
-
-import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { getSession } from "@/lib/auth";
-import { enqueueExpenseReportProcessing } from "@/lib/expense-report-queue";
-import { validateReceiptFile } from "@/lib/expense-reports";
-import { prisma } from "@/lib/prisma";
-import { saveReceiptFile } from "@/lib/receipt-storage";
+import { getFirebaseAdminDb, getFirebaseAdminStorage } from "@/lib/firebase-admin";
+import {
+  expenseReportsCollectionName,
+  type ExpenseReportFirestoreDocument,
+} from "@/lib/firebase-expense-reports";
 
 export type ExpenseReportActionState = {
   error?: string;
@@ -41,133 +38,6 @@ function normalizeOptionalTextEntry(entry: FormDataEntryValue | null) {
   return value.length > 0 ? value : null;
 }
 
-export async function createExpenseReport(
-  _prevState: ExpenseReportActionState,
-  formData: FormData,
-): Promise<ExpenseReportActionState> {
-  const session = await getSession();
-
-  if (!session?.user?.id) {
-    return {
-      error: "You need to be signed in to upload a receipt.",
-    };
-  }
-
-  const fileEntries = formData.getAll("receipt");
-  const files = fileEntries.filter((entry): entry is File => entry instanceof File);
-
-  if (files.length === 0) {
-    return {
-      error: "Please choose at least one receipt or invoice file to upload.",
-    };
-  }
-
-  const uploadSessionId = randomUUID();
-
-  try {
-    const failures: string[] = [];
-    let queuedCount = 0;
-
-    for (const fileEntry of files) {
-      try {
-        validateReceiptFile(fileEntry);
-
-        const storedFile = await saveReceiptFile(fileEntry);
-        const createdReport = await prisma.expenseReport.create({
-          data: {
-            userId: session.user.id,
-            uploadSessionId,
-            sourceFileName: fileEntry.name || "uploaded-document",
-            storedFileName: storedFile.storedFileName,
-            storedFilePath: storedFile.storedFilePath,
-            fileMimeType: storedFile.fileMimeType,
-            fileSizeBytes: storedFile.fileSizeBytes,
-          },
-          select: {
-            id: true,
-          },
-        });
-
-        try {
-          await enqueueExpenseReportProcessing(createdReport.id);
-          queuedCount += 1;
-        } catch (error) {
-          await prisma.expenseReport.update({
-            where: {
-              id: createdReport.id,
-            },
-            data: {
-              status: "FAILED",
-              processingError:
-                error instanceof Error
-                  ? error.message
-                  : "We could not queue that receipt for processing.",
-            },
-          });
-
-          failures.push(
-            `${fileEntry.name}: ${
-              error instanceof Error
-                ? error.message
-                : "we could not queue that receipt for processing."
-            }`,
-          );
-        }
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          failures.push(
-            `${fileEntry.name}: this invoice number was already processed.`,
-          );
-          continue;
-        }
-
-        failures.push(
-          `${fileEntry.name}: ${
-            error instanceof Error
-              ? error.message
-              : "we could not save that extracted document."
-          }`,
-        );
-      }
-    }
-
-    revalidatePath("/");
-
-    if (queuedCount === 0) {
-      return {
-        error: failures.join(" "),
-        uploadSessionId,
-        queuedCount,
-      };
-    }
-
-    if (failures.length > 0) {
-      return {
-        success: `Queued ${queuedCount} of ${files.length} receipt${files.length === 1 ? "" : "s"} for background processing.`,
-        error: failures.join(" "),
-        uploadSessionId,
-        queuedCount,
-      };
-    }
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "We could not queue those documents for processing.",
-    };
-  }
-
-  return {
-    success: `Queued ${files.length} receipt${files.length === 1 ? "" : "s"} for background processing.`,
-    uploadSessionId,
-    queuedCount: files.length,
-  };
-}
-
 export async function updateExpenseReport(
   _prevState: UpdateExpenseReportActionState,
   formData: FormData,
@@ -188,18 +58,20 @@ export async function updateExpenseReport(
     };
   }
 
-  const existingReport = await prisma.expenseReport.findFirst({
-    where: {
-      id: reportId,
-      userId: session.user.id,
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
+  const reportReference = getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .doc(reportId);
+  const reportSnapshot = await reportReference.get();
 
-  if (!existingReport) {
+  if (!reportSnapshot.exists) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  const existingReport = reportSnapshot.data() as ExpenseReportFirestoreDocument;
+
+  if (existingReport.userId !== session.user.id) {
     return {
       error: "Expense report not found.",
     };
@@ -236,20 +108,14 @@ export async function updateExpenseReport(
   }
 
   try {
-    await prisma.expenseReport.update({
-      where: {
-        id: existingReport.id,
-      },
-      data: {
-        description,
-        amount: amount ? new Prisma.Decimal(amount) : null,
-        category,
-        expenseDate: expenseDate
-          ? new Date(`${expenseDate}T00:00:00.000Z`)
-          : null,
-        vendorName,
-        additionalNotes,
-      },
+    await reportReference.update({
+      description,
+      amount,
+      category,
+      expenseDate,
+      vendorName,
+      additionalNotes,
+      updatedAt: new Date(),
     });
   } catch (error) {
     return {
@@ -261,7 +127,7 @@ export async function updateExpenseReport(
   }
 
   revalidatePath("/");
-  revalidatePath(`/expense-reports/${existingReport.id}`);
+  revalidatePath(`/expense-reports/${reportId}`);
 
   return {
     success: "Expense report updated.",
@@ -279,19 +145,20 @@ export async function deleteFailedExpenseReport(
     };
   }
 
-  const existingReport = await prisma.expenseReport.findFirst({
-    where: {
-      id: reportId,
-      userId: session.user.id,
-    },
-    select: {
-      id: true,
-      status: true,
-      storedFilePath: true,
-    },
-  });
+  const reportReference = getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .doc(reportId);
+  const reportSnapshot = await reportReference.get();
 
-  if (!existingReport) {
+  if (!reportSnapshot.exists) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  const existingReport = reportSnapshot.data() as ExpenseReportFirestoreDocument;
+
+  if (existingReport.userId !== session.user.id) {
     return {
       error: "Expense report not found.",
     };
@@ -304,14 +171,14 @@ export async function deleteFailedExpenseReport(
   }
 
   try {
-    await prisma.expenseReport.delete({
-      where: {
-        id: existingReport.id,
-      },
-    });
+    await reportReference.delete();
 
-    if (existingReport.storedFilePath) {
-      await unlink(existingReport.storedFilePath).catch(() => undefined);
+    if (existingReport.storagePath) {
+      await getFirebaseAdminStorage()
+        .bucket()
+        .file(existingReport.storagePath)
+        .delete()
+        .catch(() => undefined);
     }
   } catch (error) {
     return {
