@@ -1,72 +1,19 @@
-This project now includes email/password authentication with:
+# Centel Interview
 
-- `next-auth` for session handling
-- `Prisma` for database access
-- `PostgreSQL` as the default local database
-- `Gemini API` for invoice and receipt extraction
-- server-side registration via Next.js Server Functions
+## Stack
 
-## Getting Started
+- NextJS
+- Firebase
+- GeminiAI
+- Vercel
 
-1. Create an environment file:
+## Documentation
 
-```bash
-cp .env.example .env
-```
+#### DB Approach:
+My database approach was first to make a simple PostgreSQL database. The idea was simple, create users, users can upload a file, and with an external call to GeminiAI it'll get computed and stored in the database.
 
-2. Make sure PostgreSQL is running locally and create the database:
+As a first approach it was good, but then it escalated when trying to add complexity to it.
 
-```bash
-createdb centinel
-```
+First step was trying to make it asynchronous, what happens if an user wants to bulk upload files? My database approach would still hold up, but I would need to add asynchronous workers. This being my first approach, worked by adding redis and a queue.
 
-3. Generate the Prisma client and apply the checked-in migration:
-
-```bash
-npm run db:generate
-npm run db:init
-```
-
-4. Start the development server:
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000), then visit `/register` to create a user.
-
-## Database
-
-The default setup uses local PostgreSQL through Prisma:
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/centinel?schema=public"
-```
-
-If your local Postgres user/password/port differ, update `DATABASE_URL` in `.env` to match your machine, then rerun `npm run db:init`.
-
-You also need a Gemini API key in `.env`:
-
-```env
-GEMINI_API_KEY="your-gemini-api-key"
-GEMINI_RECEIPT_MODEL="gemini-2.5-flash"
-```
-
-## Auth Notes
-
-- Users are stored in the database with hashed passwords.
-- The app uses a credentials provider for login.
-- The home page is protected and redirects unauthenticated users to `/login`.
-
-## Expense Extraction
-
-- Upload PDF receipts from the authenticated home page.
-- The server sends the uploaded PDF to Gemini as inline PDF data.
-- The extracted report is saved in Postgres with invoice number, description, amount, category, expense date, vendor name, and additional notes.
-- The original uploaded PDF is stored locally on the server and can be reopened from the saved report list.
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Second step was brought by the question of _how could I show the user that the files were being processed asynchronously?_. This is where I first went through some different solutions, but everything pointed out to WebSockets. At first, my approach was to just use native WebSockets and work with it. Essentially, I would generate a specific ID for a bulk update and get all the reports that share that ID. Every report would have a status (uploaded/processing/completed/failed), and through that status I would see how many were left and out of that what was the percentage of files processed.

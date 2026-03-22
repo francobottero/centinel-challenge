@@ -1,7 +1,6 @@
 "use server";
 
 import { hash } from "bcryptjs";
-import { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -52,10 +51,7 @@ export async function registerUser(
       },
     });
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
+    if (isPrismaUniqueConstraintError(error)) {
       return {
         error: "An account with this email already exists.",
       };
@@ -67,4 +63,13 @@ export async function registerUser(
   }
 
   redirect("/login");
+}
+
+function isPrismaUniqueConstraintError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
 }
