@@ -1,34 +1,21 @@
 "use client";
 
-import {
-  deleteObject,
-  ref,
-  uploadBytes,
-} from "firebase/storage";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import { firebaseClientStorage } from "@/lib/firebase-client";
-import { ensureFirebaseClientSession } from "@/lib/firebase-client-session";
-import { buildFirebaseStorageFolder } from "@/lib/firebase-storage-folder";
+import { DismissibleAlert } from "@/app/components/dismissible-alert";
+import {
+  type QueuedExpenseUpload,
+  useExpenseUpload,
+} from "@/app/hooks/use-expense-upload";
 import { acceptedReceiptFileInputValue } from "@/lib/receipt-file-types";
 
 const feedbackTimeoutMs = 5000;
-const acceptedReceiptMimeTypes = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
 
 type ExpenseUploadFormProps = {
   userEmail: string | null | undefined;
   onUploadQueued?: (
     uploadSessionId: string,
-    queuedReports: Array<{
-      id: string;
-      sourceFileName: string;
-      storedFilePath: string;
-    }>,
+    queuedReports: QueuedExpenseUpload[],
   ) => void;
 };
 
@@ -38,6 +25,7 @@ export function ExpenseUploadForm({
 }: ExpenseUploadFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { uploadExpenseFiles } = useExpenseUpload();
   const [submissionId, setSubmissionId] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,94 +79,9 @@ export function ExpenseUploadForm({
       return;
     }
 
-    const uploadSessionId = crypto.randomUUID();
-    let queuedCount = 0;
-    const failures: string[] = [];
-    const queuedReports: Array<{
-      id: string;
-      sourceFileName: string;
-      storedFilePath: string;
-    }> = [];
-
     try {
-      const firebaseUser = await ensureFirebaseClientSession();
-
-      if (!firebaseUser) {
-        throw new Error("Could not initialize the Firebase upload session.");
-      }
-
-      for (const file of files) {
-        try {
-          validateReceiptFileForClient(file);
-
-          const sanitizedFileName = sanitizeFileName(file.name || "receipt");
-          const userStorageFolder = buildFirebaseStorageFolder(
-            userEmail,
-            firebaseUser.uid,
-          );
-          const storagePath = `users/${userStorageFolder}/receipts/${crypto.randomUUID()}-${sanitizedFileName}`;
-          const storageReference = ref(firebaseClientStorage, storagePath);
-          const uploadResult = await uploadBytes(storageReference, file, {
-            contentType: file.type || "application/pdf",
-          });
-
-          try {
-            const response = await fetch("/api/expense-reports", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              credentials: "include",
-              body: JSON.stringify({
-              uploadSessionId,
-              sourceFileName: file.name || "uploaded-document",
-              storagePath,
-              fileMimeType:
-                uploadResult.metadata.contentType ||
-                file.type ||
-                "application/pdf",
-              fileSizeBytes: file.size,
-              }),
-            });
-
-            if (!response.ok) {
-              const result = (await response.json()) as {
-                error?: string;
-              };
-              throw new Error(
-                result.error ?? "We could not create the expense report record.",
-              );
-            }
-
-            const result = (await response.json()) as {
-              id: string;
-            };
-
-            queuedReports.push({
-              id: result.id,
-              sourceFileName: file.name || "uploaded-document",
-              storedFilePath: storagePath,
-            });
-          } catch (writeError) {
-            await deleteObject(storageReference).catch(() => undefined);
-            throw new Error(
-              writeError instanceof Error
-                ? `We uploaded the file but could not create its expense report record: ${writeError.message}`
-                : "We uploaded the file but could not create its expense report record.",
-            );
-          }
-
-          queuedCount += 1;
-        } catch (uploadError) {
-          failures.push(
-            `${file.name}: ${
-              uploadError instanceof Error
-                ? uploadError.message
-                : "we could not upload that file."
-            }`,
-          );
-        }
-      }
+      const { failures, queuedCount, queuedReports, uploadSessionId } =
+        await uploadExpenseFiles(files, userEmail);
 
       if (queuedCount === 0) {
         setError(failures.join(" "));
@@ -231,31 +134,19 @@ export function ExpenseUploadForm({
       </div>
 
       {visibleError ? (
-        <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
-          <p>{visibleError}</p>
-          <button
-            type="button"
-            onClick={() => setDismissedErrorSubmissionId(submissionId)}
-            aria-label="Dismiss error message"
-            className="shrink-0 rounded-full px-2 py-1 text-base leading-none transition hover:bg-red-100 dark:hover:bg-red-900/40"
-          >
-            x
-          </button>
-        </div>
+        <DismissibleAlert
+          message={visibleError}
+          onDismiss={() => setDismissedErrorSubmissionId(submissionId)}
+          tone="error"
+        />
       ) : null}
 
       {visibleSuccess ? (
-        <div className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
-          <p>{visibleSuccess}</p>
-          <button
-            type="button"
-            onClick={() => setDismissedSuccessSubmissionId(submissionId)}
-            aria-label="Dismiss success message"
-            className="shrink-0 rounded-full px-2 py-1 text-base leading-none transition hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
-          >
-            x
-          </button>
-        </div>
+        <DismissibleAlert
+          message={visibleSuccess}
+          onDismiss={() => setDismissedSuccessSubmissionId(submissionId)}
+          tone="success"
+        />
       ) : null}
 
       <div aria-live="polite" className="sr-only">
@@ -271,23 +162,4 @@ export function ExpenseUploadForm({
       </button>
     </form>
   );
-}
-
-function sanitizeFileName(fileName: string) {
-  const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, "-");
-  return normalized.length > 0 ? normalized : "receipt";
-}
-
-function validateReceiptFileForClient(file: File) {
-  if (file.size === 0) {
-    throw new Error("Please choose a receipt or invoice file to upload.");
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error("Please upload a file smaller than 10 MB.");
-  }
-
-  if (file.type && !acceptedReceiptMimeTypes.has(file.type)) {
-    throw new Error("Supported file types are PDF, JPG, PNG, and WEBP.");
-  }
 }
