@@ -26,6 +26,11 @@ export type DeleteExpenseReportActionState = {
   success?: string;
 };
 
+export type RetryExpenseReportActionState = {
+  error?: string;
+  success?: string;
+};
+
 const amountPattern = /^\d+(\.\d{1,2})?$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -193,5 +198,73 @@ export async function deleteFailedExpenseReport(
 
   return {
     success: "Failed expense report deleted.",
+  };
+}
+
+export async function retryExpenseReportProcessing(
+  reportId: string,
+): Promise<RetryExpenseReportActionState> {
+  const session = await getSession();
+
+  if (!session?.user?.id) {
+    return {
+      error: "You need to be signed in to retry an expense report.",
+    };
+  }
+
+  const reportReference = getFirebaseAdminDb()
+    .collection(expenseReportsCollectionName)
+    .doc(reportId);
+  const reportSnapshot = await reportReference.get();
+
+  if (!reportSnapshot.exists) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  const existingReport = reportSnapshot.data() as ExpenseReportFirestoreDocument;
+
+  if (existingReport.userId !== session.user.id) {
+    return {
+      error: "Expense report not found.",
+    };
+  }
+
+  if (existingReport.status === "PROCESSING") {
+    return {
+      error: "This expense report is already processing.",
+    };
+  }
+
+  if (existingReport.status === "COMPLETED") {
+    return {
+      error: "Completed expense reports do not need to be retried.",
+    };
+  }
+
+  try {
+    await reportReference.update({
+      status: "UPLOADED",
+      retryRequestedAt: new Date(),
+      processingError: null,
+      processingStartedAt: null,
+      processedAt: null,
+      updatedAt: new Date(),
+    });
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "We could not retry that expense report.",
+    };
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/expense-reports/${reportId}`);
+
+  return {
+    success: "Expense report re-queued for processing.",
   };
 }

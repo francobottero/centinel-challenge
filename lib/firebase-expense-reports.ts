@@ -12,8 +12,12 @@ export const expenseReportsCollectionName = "expenseReports";
 
 export type ExpenseReportFirestoreDocument = {
   userId: string;
+  userName?: string | null;
+  userEmail?: string | null;
   uploadSessionId: string | null;
   status: ExpenseReportStatusValue;
+  fileHash?: string | null;
+  retryRequestedAt?: unknown;
   processingError: string | null;
   invoiceNumber: string | null;
   description: string | null;

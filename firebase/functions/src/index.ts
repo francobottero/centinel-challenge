@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions";
 import { z } from "zod";
 
@@ -38,6 +38,7 @@ type ExpenseReportFirestoreDocument = {
   userId: string;
   uploadSessionId: string | null;
   status: "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  retryRequestedAt?: FirebaseFirestore.Timestamp | null;
   processingError: string | null;
   invoiceNumber: string | null;
   description: string | null;
@@ -66,58 +67,146 @@ export const processExpenseReportOnCreate = onDocumentCreated(
       return;
     }
 
-    const reportId = reportSnapshot.id;
-    const report = reportSnapshot.data() as ExpenseReportFirestoreDocument;
-
-    if (report.status !== "UPLOADED") {
-      return;
-    }
-
-    if (!process.env.GEMINI_API_KEY) {
-      logger.error("GEMINI_API_KEY is missing in Firebase Functions environment.");
-      await markExpenseReportFailed(reportId, "The extraction service is not configured.");
-      return;
-    }
-
-    if (!report.storagePath) {
-      await markExpenseReportFailed(reportId, "Stored file path is missing.");
-      return;
-    }
-
-    try {
-      await db.collection(expenseReportsCollectionName).doc(reportId).update({
-        status: "PROCESSING",
-        processingError: null,
-        processingStartedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-
-      const [fileBuffer] = await storage.bucket().file(report.storagePath).download();
-      const extracted = await extractExpenseReportFromStoredFile({
-        buffer: fileBuffer,
-        fileName: report.sourceFileName,
-        mimeType: report.fileMimeType || "application/pdf",
-      });
-
-      await db.collection(expenseReportsCollectionName).doc(reportId).update({
-        status: "COMPLETED",
-        processingError: null,
-        processedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        invoiceNumber: extracted.invoiceNumber,
-        description: extracted.description,
-        amount: extracted.amount,
-        category: extracted.category,
-        expenseDate: extracted.expenseDate,
-        vendorName: extracted.vendorName,
-        additionalNotes: extracted.additionalNotes,
-      });
-    } catch (error) {
-      logger.error("Expense report processing failed.", { reportId, error });
-      await markExpenseReportFailed(reportId, formatExpenseProcessingError(error));
-    }
+    await processExpenseReportDocument(
+      reportSnapshot.id,
+      reportSnapshot.data() as ExpenseReportFirestoreDocument,
+    );
   },
 );
+
+export const processExpenseReportOnRetry = onDocumentUpdated(
+  {
+    document: `${expenseReportsCollectionName}/{reportId}`,
+    region: process.env.EXPENSE_REPORTS_FUNCTION_REGION || "us-central1",
+    memory: "512MiB",
+    timeoutSeconds: 300,
+  },
+  async (event) => {
+    if (!event.data) {
+      return;
+    }
+
+    const before = event.data.before.data() as ExpenseReportFirestoreDocument | undefined;
+    const after = event.data.after.data() as ExpenseReportFirestoreDocument | undefined;
+
+    if (!after) {
+      return;
+    }
+
+    const beforeRetryRequestedAt = before?.retryRequestedAt?.toMillis?.() ?? null;
+    const afterRetryRequestedAt = after.retryRequestedAt?.toMillis?.() ?? null;
+
+    if (afterRetryRequestedAt === null || afterRetryRequestedAt === beforeRetryRequestedAt) {
+      return;
+    }
+
+    await processExpenseReportDocument(event.data.after.id, after);
+  },
+);
+
+async function processExpenseReportDocument(
+  reportId: string,
+  report: ExpenseReportFirestoreDocument,
+) {
+  if (report.status !== "UPLOADED") {
+    return;
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    logger.error("GEMINI_API_KEY is missing in Firebase Functions environment.");
+    await markExpenseReportFailed(reportId, "The extraction service is not configured.");
+    return;
+  }
+
+  if (!report.storagePath) {
+    await markExpenseReportFailed(reportId, "Stored file path is missing.");
+    return;
+  }
+
+  try {
+    await db.collection(expenseReportsCollectionName).doc(reportId).update({
+      status: "PROCESSING",
+      processingError: null,
+      processingStartedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const [fileBuffer] = await storage.bucket().file(report.storagePath).download();
+    const extracted = await extractExpenseReportFromStoredFile({
+      buffer: fileBuffer,
+      fileName: report.sourceFileName,
+      mimeType: report.fileMimeType || "application/pdf",
+    });
+
+    if (await isDuplicateExpenseReport(reportId, report.userId, extracted.invoiceNumber)) {
+      await deleteDuplicateExpenseReport(reportId, report.storagePath);
+      return;
+    }
+
+    await db.collection(expenseReportsCollectionName).doc(reportId).update({
+      status: "COMPLETED",
+      processingError: null,
+      processedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      invoiceNumber: extracted.invoiceNumber,
+      description: extracted.description,
+      amount: extracted.amount,
+      category: extracted.category,
+      expenseDate: extracted.expenseDate,
+      vendorName: extracted.vendorName,
+      additionalNotes: extracted.additionalNotes,
+    });
+  } catch (error) {
+    logger.error("Expense report processing failed.", { reportId, error });
+    await markExpenseReportFailed(reportId, formatExpenseProcessingError(error));
+  }
+}
+
+async function isDuplicateExpenseReport(
+  reportId: string,
+  userId: string,
+  invoiceNumber: string | null,
+) {
+  if (!invoiceNumber) {
+    return false;
+  }
+
+  const snapshot = await db
+    .collection(expenseReportsCollectionName)
+    .where("userId", "==", userId)
+    .where("invoiceNumber", "==", invoiceNumber)
+    .get();
+
+  return snapshot.docs.some((document) => {
+    if (document.id === reportId) {
+      return false;
+    }
+
+    const existingReport = document.data() as ExpenseReportFirestoreDocument;
+    return existingReport.status === "COMPLETED";
+  });
+}
+
+async function deleteDuplicateExpenseReport(
+  reportId: string,
+  storagePath: string | null,
+) {
+  if (storagePath) {
+    await storage
+      .bucket()
+      .file(storagePath)
+      .delete()
+      .catch((error) => {
+        logger.error("Could not delete duplicate expense report file.", {
+          reportId,
+          storagePath,
+          error,
+        });
+      });
+  }
+
+  await db.collection(expenseReportsCollectionName).doc(reportId).delete();
+}
 
 async function extractExpenseReportFromStoredFile(options: {
   buffer: Buffer;

@@ -16,7 +16,7 @@ import { isPendingExpenseReportStatus } from "@/lib/expense-report-status";
 
 type ExpenseReportsDashboardProps = {
   userId: string;
-  userName: string | null | undefined;
+  userEmail: string | null | undefined;
   initialReports: ExpenseReportListItem[];
   initialSummary: UploadSessionSummary | null;
   initialActiveUploadSessionId: string | null;
@@ -24,7 +24,7 @@ type ExpenseReportsDashboardProps = {
 
 export function ExpenseReportsDashboard({
   userId,
-  userName,
+  userEmail,
   initialReports,
   initialSummary,
   initialActiveUploadSessionId,
@@ -38,10 +38,15 @@ export function ExpenseReportsDashboard({
     useState<string | null>(null);
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [activeDeleteReportId, setActiveDeleteReportId] = useState<
     string | null
   >(null);
+  const [activeRetryReportId, setActiveRetryReportId] = useState<
+    string | null
+  >(null);
   const [isDeletingReport, startDeleteTransition] = useTransition();
+  const [isRetryingReport, startRetryTransition] = useTransition();
 
   const hasPendingReports = useMemo(
     () => reports.some((report) => isPendingExpenseReportStatus(report.status)),
@@ -110,6 +115,33 @@ export function ExpenseReportsDashboard({
     [currentUploadSessionId],
   );
 
+  const handleRetryReport = useCallback((reportId: string) => {
+    setRetryError(null);
+    setActiveRetryReportId(reportId);
+
+    startRetryTransition(async () => {
+      try {
+        const response = await fetch(`/api/expense-reports/${reportId}`, {
+          method: "POST",
+        });
+
+        const result = (await response.json()) as {
+          error?: string;
+          success?: string;
+        };
+
+        if (!response.ok) {
+          setRetryError(result.error ?? "Could not retry that expense report.");
+          return;
+        }
+      } catch {
+        setRetryError("Could not retry that expense report.");
+      } finally {
+        setActiveRetryReportId(null);
+      }
+    });
+  }, []);
+
   return (
     <>
       <section className="rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-strong)] p-6">
@@ -122,10 +154,45 @@ export function ExpenseReportsDashboard({
 
         <div className="mt-6">
           <ExpenseUploadForm
-            userName={userName}
-            onUploadQueued={(uploadSessionId) => {
+            userEmail={userEmail}
+            onUploadQueued={(uploadSessionId, queuedReports) => {
               setDismissedSummaryUploadSessionId(null);
               setCurrentUploadSessionId(uploadSessionId);
+              setReports((currentReports) => {
+                const nextReports = [...currentReports];
+
+                for (const queuedReport of queuedReports) {
+                  const existingIndex = nextReports.findIndex(
+                    (report) => report.id === queuedReport.id,
+                  );
+                  const optimisticReport: ExpenseReportListItem = {
+                    id: queuedReport.id,
+                    uploadSessionId,
+                    status: "UPLOADED",
+                    processingError: null,
+                    invoiceNumber: null,
+                    description: null,
+                    amount: null,
+                    category: null,
+                    expenseDate: null,
+                    vendorName: null,
+                    additionalNotes: null,
+                    sourceFileName: queuedReport.sourceFileName,
+                    storedFilePath: queuedReport.storedFilePath,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  };
+
+                  if (existingIndex >= 0) {
+                    nextReports[existingIndex] = optimisticReport;
+                  } else {
+                    nextReports.unshift(optimisticReport);
+                  }
+                }
+
+                setSummary(summarizeUploadSession(nextReports, uploadSessionId));
+                return nextReports;
+              });
             }}
           />
         </div>
@@ -200,6 +267,12 @@ export function ExpenseReportsDashboard({
           </p>
         ) : null}
 
+        {retryError ? (
+          <p className="mt-4 break-words rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            {retryError}
+          </p>
+        ) : null}
+
         {reports.length === 0 ? (
           <div className="mt-6 rounded-[1.25rem] border border-dashed border-[var(--border)] px-6 py-10 text-sm text-[var(--muted)]">
             No invoices uploaded yet. Add your first receipt to create an
@@ -242,18 +315,32 @@ export function ExpenseReportsDashboard({
                         </p>
                       ) : null}
 
-                      {report.status === "FAILED" ? (
+                      {report.status === "FAILED" || report.status === "UPLOADED" ? (
                         <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFailedReport(report.id)}
-                            disabled={isDeletingReport}
-                            className="inline-flex items-center justify-center rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
-                          >
-                            {isDeletingReport && activeDeleteReportId === report.id
-                              ? "Deleting..."
-                              : "Delete failed upload"}
-                          </button>
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleRetryReport(report.id)}
+                              disabled={isRetryingReport}
+                              className="inline-flex items-center justify-center rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {isRetryingReport && activeRetryReportId === report.id
+                                ? "Retrying..."
+                                : "Retry processing"}
+                            </button>
+                            {report.status === "FAILED" ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFailedReport(report.id)}
+                                disabled={isDeletingReport}
+                                className="inline-flex items-center justify-center rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
+                              >
+                                {isDeletingReport && activeDeleteReportId === report.id
+                                  ? "Deleting..."
+                                  : "Delete failed upload"}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       ) : null}
 

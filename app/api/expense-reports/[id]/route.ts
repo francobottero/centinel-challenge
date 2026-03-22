@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { deleteFailedExpenseReport } from "@/app/actions/expense-reports";
+import {
+  deleteFailedExpenseReport,
+  retryExpenseReportProcessing,
+} from "@/app/actions/expense-reports";
 
 type RouteContext = {
   params: Promise<{
@@ -11,6 +14,17 @@ type RouteContext = {
 export async function DELETE(_request: Request, context: RouteContext) {
   const { id } = await context.params;
   const result = await deleteFailedExpenseReport(id);
+
+  if (result.error) {
+    return NextResponse.json({ error: result.error }, { status: 400 });
+  }
+
+  return NextResponse.json(result);
+}
+
+export async function POST(_request: Request, context: RouteContext) {
+  const { id } = await context.params;
+  const result = await retryExpenseReportProcessing(id);
 
   if (result.error) {
     return NextResponse.json({ error: result.error }, { status: 400 });

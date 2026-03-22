@@ -1,12 +1,15 @@
 "use client";
 
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { ref, uploadBytes } from "firebase/storage";
+import {
+  deleteObject,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import { firebaseClientDb, firebaseClientStorage } from "@/lib/firebase-client";
+import { firebaseClientStorage } from "@/lib/firebase-client";
 import { ensureFirebaseClientSession } from "@/lib/firebase-client-session";
-import { expenseReportsCollectionName } from "@/lib/firebase-expense-reports";
+import { buildFirebaseStorageFolder } from "@/lib/firebase-storage-folder";
 import { acceptedReceiptFileInputValue } from "@/lib/receipt-file-types";
 
 const feedbackTimeoutMs = 5000;
@@ -18,12 +21,19 @@ const acceptedReceiptMimeTypes = new Set([
 ]);
 
 type ExpenseUploadFormProps = {
-  userName: string | null | undefined;
-  onUploadQueued?: (uploadSessionId: string) => void;
+  userEmail: string | null | undefined;
+  onUploadQueued?: (
+    uploadSessionId: string,
+    queuedReports: Array<{
+      id: string;
+      sourceFileName: string;
+      storedFilePath: string;
+    }>,
+  ) => void;
 };
 
 export function ExpenseUploadForm({
-  userName,
+  userEmail,
   onUploadQueued,
 }: ExpenseUploadFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -84,6 +94,11 @@ export function ExpenseUploadForm({
     const uploadSessionId = crypto.randomUUID();
     let queuedCount = 0;
     const failures: string[] = [];
+    const queuedReports: Array<{
+      id: string;
+      sourceFileName: string;
+      storedFilePath: string;
+    }> = [];
 
     try {
       const firebaseUser = await ensureFirebaseClientSession();
@@ -97,39 +112,61 @@ export function ExpenseUploadForm({
           validateReceiptFileForClient(file);
 
           const sanitizedFileName = sanitizeFileName(file.name || "receipt");
-          const userStorageFolder = buildUserStorageFolder(
+          const userStorageFolder = buildFirebaseStorageFolder(
+            userEmail,
             firebaseUser.uid,
-            userName,
           );
-          const storagePath = `users/${userStorageFolder}/receipts/${uploadSessionId}/${crypto.randomUUID()}-${sanitizedFileName}`;
+          const storagePath = `users/${userStorageFolder}/receipts/${crypto.randomUUID()}-${sanitizedFileName}`;
           const storageReference = ref(firebaseClientStorage, storagePath);
           const uploadResult = await uploadBytes(storageReference, file, {
             contentType: file.type || "application/pdf",
           });
-          await addDoc(collection(firebaseClientDb, expenseReportsCollectionName), {
-            userId: firebaseUser.uid,
-            uploadSessionId,
-            status: "UPLOADED",
-            processingError: null,
-            invoiceNumber: null,
-            description: null,
-            amount: null,
-            category: null,
-            expenseDate: null,
-            vendorName: null,
-            additionalNotes: null,
-            sourceFileName: file.name || "uploaded-document",
-            storagePath,
-            fileMimeType:
-              uploadResult.metadata.contentType ||
-              file.type ||
-              "application/pdf",
-            fileSizeBytes: file.size,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            processingStartedAt: null,
-            processedAt: null,
-          });
+
+          try {
+            const response = await fetch("/api/expense-reports", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+              uploadSessionId,
+              sourceFileName: file.name || "uploaded-document",
+              storagePath,
+              fileMimeType:
+                uploadResult.metadata.contentType ||
+                file.type ||
+                "application/pdf",
+              fileSizeBytes: file.size,
+              }),
+            });
+
+            if (!response.ok) {
+              const result = (await response.json()) as {
+                error?: string;
+              };
+              throw new Error(
+                result.error ?? "We could not create the expense report record.",
+              );
+            }
+
+            const result = (await response.json()) as {
+              id: string;
+            };
+
+            queuedReports.push({
+              id: result.id,
+              sourceFileName: file.name || "uploaded-document",
+              storedFilePath: storagePath,
+            });
+          } catch (writeError) {
+            await deleteObject(storageReference).catch(() => undefined);
+            throw new Error(
+              writeError instanceof Error
+                ? `We uploaded the file but could not create its expense report record: ${writeError.message}`
+                : "We uploaded the file but could not create its expense report record.",
+            );
+          }
 
           queuedCount += 1;
         } catch (uploadError) {
@@ -149,7 +186,7 @@ export function ExpenseUploadForm({
         return;
       }
 
-      onUploadQueued?.(uploadSessionId);
+      onUploadQueued?.(uploadSessionId, queuedReports);
       formRef.current?.reset();
       setSuccess(
         `Queued ${queuedCount} of ${files.length} receipt${
@@ -239,21 +276,6 @@ export function ExpenseUploadForm({
 function sanitizeFileName(fileName: string) {
   const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, "-");
   return normalized.length > 0 ? normalized : "receipt";
-}
-
-function buildUserStorageFolder(userId: string, userName: string | null | undefined) {
-  const normalizedName = sanitizeStorageSegment(userName ?? "user");
-  return `${userId}-${normalizedName}`;
-}
-
-function sanitizeStorageSegment(value: string) {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return normalized.length > 0 ? normalized : "user";
 }
 
 function validateReceiptFileForClient(file: File) {
