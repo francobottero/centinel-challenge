@@ -21,6 +21,7 @@ export default async function Home() {
         <section className="mx-auto w-full max-w-6xl rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[0_20px_80px_rgba(15,23,42,0.12)] backdrop-blur md:p-12">
           <ExpenseReportsDashboard
             userId={session.user.id}
+            userName={session.user.name}
             initialReports={dashboardData.reports}
             initialSummary={dashboardData.summary}
             initialActiveUploadSessionId={dashboardData.selectedUploadSessionId}

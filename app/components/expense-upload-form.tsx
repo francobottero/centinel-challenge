@@ -18,10 +18,14 @@ const acceptedReceiptMimeTypes = new Set([
 ]);
 
 type ExpenseUploadFormProps = {
+  userName: string | null | undefined;
   onUploadQueued?: (uploadSessionId: string) => void;
 };
 
-export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
+export function ExpenseUploadForm({
+  userName,
+  onUploadQueued,
+}: ExpenseUploadFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [submissionId, setSubmissionId] = useState(0);
@@ -93,7 +97,11 @@ export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
           validateReceiptFileForClient(file);
 
           const sanitizedFileName = sanitizeFileName(file.name || "receipt");
-          const storagePath = `users/${firebaseUser.uid}/receipts/${uploadSessionId}/${crypto.randomUUID()}-${sanitizedFileName}`;
+          const userStorageFolder = buildUserStorageFolder(
+            firebaseUser.uid,
+            userName,
+          );
+          const storagePath = `users/${userStorageFolder}/receipts/${uploadSessionId}/${crypto.randomUUID()}-${sanitizedFileName}`;
           const storageReference = ref(firebaseClientStorage, storagePath);
           const uploadResult = await uploadBytes(storageReference, file, {
             contentType: file.type || "application/pdf",
@@ -231,6 +239,21 @@ export function ExpenseUploadForm({ onUploadQueued }: ExpenseUploadFormProps) {
 function sanitizeFileName(fileName: string) {
   const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, "-");
   return normalized.length > 0 ? normalized : "receipt";
+}
+
+function buildUserStorageFolder(userId: string, userName: string | null | undefined) {
+  const normalizedName = sanitizeStorageSegment(userName ?? "user");
+  return `${userId}-${normalizedName}`;
+}
+
+function sanitizeStorageSegment(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized.length > 0 ? normalized : "user";
 }
 
 function validateReceiptFileForClient(file: File) {

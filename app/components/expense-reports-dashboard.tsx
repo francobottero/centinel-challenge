@@ -16,6 +16,7 @@ import { isPendingExpenseReportStatus } from "@/lib/expense-report-status";
 
 type ExpenseReportsDashboardProps = {
   userId: string;
+  userName: string | null | undefined;
   initialReports: ExpenseReportListItem[];
   initialSummary: UploadSessionSummary | null;
   initialActiveUploadSessionId: string | null;
@@ -23,6 +24,7 @@ type ExpenseReportsDashboardProps = {
 
 export function ExpenseReportsDashboard({
   userId,
+  userName,
   initialReports,
   initialSummary,
   initialActiveUploadSessionId,
@@ -120,6 +122,7 @@ export function ExpenseReportsDashboard({
 
         <div className="mt-6">
           <ExpenseUploadForm
+            userName={userName}
             onUploadQueued={(uploadSessionId) => {
               setDismissedSummaryUploadSessionId(null);
               setCurrentUploadSessionId(uploadSessionId);
