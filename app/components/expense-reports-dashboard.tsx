@@ -54,6 +54,7 @@ export function ExpenseReportsDashboard({
   );
   const visibleSummary =
     summary &&
+    !summary.isFinished &&
     summary.uploadSessionId !== dismissedSummaryUploadSessionId
       ? summary
       : null;
